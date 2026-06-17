@@ -17,6 +17,7 @@ from collections import OrderedDict
 import copy
 import io
 import re
+import math
 
 from chipwhisperer.logging import *
 
@@ -61,10 +62,13 @@ class OpenADCInterface(util.DisableNewAttr):
         self._registers = registers
         self.registers = {}
         self.hwInfo = None
-        self.offset = 0.5
+        self.fp_offset = 0.5
         self.ddrMode = False
         self.sysFreq = 0
         self._bits_per_sample = 10
+        self._bytes_to_read = 0
+        self._segments = 1
+        self._samples = 1
         self._sbuf = []
         self._support_decimate = True
         self._nosampletimeout = 100
@@ -162,6 +166,12 @@ class OpenADCInterface(util.DisableNewAttr):
 
     def setBitsPerSample(self, bits):
         self._bits_per_sample = bits
+        self.updateHuskySamplesRegister()
+
+    def setSegments(self, num):
+        self._segments = num
+        self.sendMessage(CODE_WRITE, "NUM_SEGMENTS", list(int.to_bytes(num, length=2, byteorder='little')))
+        self.updateHuskySamplesRegister()
 
     def setTimeout(self, timeout):
         self._timeout = timeout
@@ -457,10 +467,60 @@ class OpenADCInterface(util.DisableNewAttr):
         else:
             return None
 
-    def setNumSamples(self, samples, segments=1):
-        self.sendMessage(CODE_WRITE, "SAMPLES_ADDR", list(int.to_bytes(samples, length=4, byteorder='little')))
-        self.updateStreamBuffer(samples*segments)
+    def setNumSamples(self, samples):
+        if self._is_husky:
+            self._samples = samples
+            self.updateHuskySamplesRegister()
+        else:
+            self.sendMessage(CODE_WRITE, "SAMPLES_ADDR", list(int.to_bytes(samples, length=4, byteorder='little')))
+        self.updateStreamBuffer(samples*self._segments)
 
+    def updateHuskySamplesRegister(self):
+        # Husky needs to be told more than just scope.adc.samples;
+        # it also needs to be told:
+        # - the number of samples to collect (different from scope.adc.samples!)
+        # - the total number of streaming bytes to read
+        samples = self._samples # TODO: initialized? check upon connection!
+        segments = self._segments
+        bits_per_sample = self._bits_per_sample
+
+        # This is copied from test_husky_tests.py's _job_setup() (from Husky FPGA repo):
+        # calculate the actual number of samples that will be collected per segment:
+        # 1. account for worst-case offset:
+        if bits_per_sample == 12:
+            bytes_to_read = samples + 3
+        else:
+            bytes_to_read = samples + 5
+        # 2. turn into bytes:
+        if bits_per_sample == 12:
+            bytes_to_read = math.ceil(bytes_to_read*1.5)
+        else:
+            bytes_to_read = bytes_to_read
+        # 3. round up to a multiple of the word size (48 bits / 6 bytes):
+        mod = bytes_to_read % 6
+        if mod:
+            bytes_to_read += 6 - mod
+        # 4. add offset word
+        bytes_to_read += 6
+
+        # similarly, calculate the actual number of *samples* that need to be collected:
+        if bits_per_sample == 12:
+            samples_to_collect = samples + 3
+            mod_op = 4
+        else:
+            samples_to_collect = samples + 5
+            mod_op = 6
+        mod = samples_to_collect % mod_op
+        if mod:
+            samples_to_collect += mod_op - mod
+
+        # in support of streaming, calculate the total number of bytes that will be read:
+        streaming_bytes_to_read = bytes_to_read * segments
+        self._bytes_to_read = bytes_to_read
+        samples_combo = (streaming_bytes_to_read << 64) + (samples << 32) + samples_to_collect
+        scope_logger.debug('XXX Bytes to read: %d' % bytes_to_read)
+        scope_logger.debug('XXX Samples to collect: %d' % samples_to_collect)
+        self.sendMessage(CODE_WRITE, "SAMPLES_ADDR", list(int.to_bytes(samples_combo, length=12, byteorder='little')))
 
     def updateStreamBuffer(self, samples=None):
         # yes this is a bit weird but it is so:
@@ -470,7 +530,7 @@ class OpenADCInterface(util.DisableNewAttr):
             if self._stream_mode:
                 sbuf_len = int(self._total_samples * self._bits_per_sample / 8)
                 if sbuf_len % 3:
-                    # need to capture a multiple of 3 otherwise processHuskyData may fail
+                    # need to capture a multiple of 3 otherwise processHuskyData may fail - TODO update!!!
                     sbuf_len += 3 - sbuf_len % 3
                 self._sbuf = array.array('B', [0]) * sbuf_len
                 # For CW-Pro, _stream_len is the number of (10-bit) samples (which was previously set), whereas for Husky, to accomodate 8/12-bit samples, 
@@ -550,8 +610,10 @@ class OpenADCInterface(util.DisableNewAttr):
 
     def numSamples(self):
         """Return the number of samples captured in one go. Returns max after resetting the hardware"""
-        temp = self.sendMessage(CODE_READ, "SAMPLES_ADDR", maxResp=4)
-        samples = int.from_bytes(temp, byteorder='little')
+        if self._is_husky:
+            samples = self._samples
+        else:
+            samples = int.from_bytes(self.sendMessage(CODE_READ, "SAMPLES_ADDR", maxResp=4), byteorder='little')
         return samples
 
     def numMaxSamples(self):
@@ -838,14 +900,10 @@ class OpenADCInterface(util.DisableNewAttr):
             for status in range(0, NumberPackages):
                 # Address of DDR is auto-incremented following a read command
                 # so no need to write new address
-
                 # print "Address=%x"%self.getDDRAddress()
-
                 # print "bytes = %d"%self.getBytesInFifo()
-
                 bytesToRead = self.getBytesInFifo()
                 #print(bytesToRead)
-
                 # print bytesToRead
 
                 if bytesToRead == 0:
@@ -855,13 +913,11 @@ class OpenADCInterface(util.DisableNewAttr):
                 #Bytes get packed 3 samples / 4 bytes
                 #Add some extra in case needed
                 hypBytes = (NumberPoints * 4)/3 + 256
-
                 bytesToRead = min(hypBytes, bytesToRead)
 
                 # +1 for sync byte
                 data = self.sendMessage(CODE_READ, "ADCREAD_ADDR", None, False, bytesToRead + 1)  # BytesPerPackage)
                 #print(data)
-
                 # for p in data:
                 #       print "%x "%p,
 
@@ -871,13 +927,11 @@ class OpenADCInterface(util.DisableNewAttr):
 
                 if progressDialog:
                     progressDialog.setValue(status)
-
                     if progressDialog.wasCanceled():
                         break
 
             # for point in datapoints:
             #       print "%3x"%(int((point+0.5)*1024))
-
             if datapoints is None:
                 return []
             if len(datapoints) > NumberPoints:
@@ -895,14 +949,12 @@ class OpenADCInterface(util.DisableNewAttr):
 
 
     def readHuskyData(self, NumberPoints=None):
-        if self._bits_per_sample == 12:
-            bytesToRead = int(np.ceil(NumberPoints*1.5))
-        else:
-            bytesToRead = NumberPoints
-        # Husky hardware always captures a multiple of 3 samples. We want to read all the captured samples.
-        if bytesToRead % 3:
-            bytesToRead += 3  - bytesToRead % 3
-        scope_logger.debug("XXX reading with NumberPoints=%d, bytesToRead=%d" % (NumberPoints, bytesToRead))
+        # NumberPoints is the number of samples to return (i.e. scope.adc.samples * scope.adc.segments);
+        # the number of *bytes* to read was calculated when scope.adc properties were set
+        segments = self._segments
+        bytes_per_segment = self._bytes_to_read
+        bytes_to_read = bytes_per_segment * segments
+        scope_logger.debug("reading with NumberPoints=%d, bytes_to_read=%d" % (NumberPoints, bytes_to_read))
 
         if self._stream_mode:
             data = self._sbuf
@@ -911,32 +963,77 @@ class OpenADCInterface(util.DisableNewAttr):
             if self._fast_fifo_read_enable:
                 # switch FPGA and SAM3U into fast read timing mode
                 self.setFastSMC(1)
-            data = self.sendMessage(CODE_READ, "ADCREAD_ADDR", None, False, bytesToRead)
+            data = self.sendMessage(CODE_READ, "ADCREAD_ADDR", None, False, bytes_to_read)
             # switch FPGA and SAM3U back to regular read timing mode
             if self._fast_fifo_read_enable:
                 scope_logger.debug("DISABLING fast fifo read")
                 self.setFastSMC(0)
 
-        scope_logger.debug("XXX read %d bytes; NumberPoints=%d, bytesToRead=%d" % (len(data), NumberPoints, bytesToRead))
+        scope_logger.debug("read %d bytes; NumberPoints=%d, bytes_to_read=%d" % (len(data), NumberPoints, bytes_to_read))
         if data is not None:
             data = np.array(data)
-            datapoints = self.processHuskyData(NumberPoints, data)
+            #datapoints = self.processHuskyData(NumberPoints, data)
+            '''
+            if segments > 1:
+                datapoints = []
+                for s in range(segments):
+                    sdata = self.processHuskyData(NumberPoints//segments, data[s*bytes_per_segment:(s+1)*bytes_per_segment])
+                    datapoints.extend(sdata)
+                    #dataread = 'Segment %d data read (%d NumberPoints): ' % (s, len(sdata))
+                    #for b in sdata:
+                    #    dataread += '%3x ' % b
+                    #dataread += '\n'
+                    #self.dut._log.info(dataread)
+            else:
+                datapoints = self.processHuskyData(NumberPoints, data)
+            '''
+
+            datapoints = self.processHuskyData(NumberPoints, segments, bytes_per_segment, data)
+
+
         if datapoints is None:
             return []
         return datapoints
 
 
-    def processHuskyData(self, NumberPoints, data):
+    def processHuskyData(self, NumberPoints, segments, bytes_per_segment, data):
+        samples_per_segment = self._samples
         if self._bits_per_sample == 12:
-            data = np.frombuffer(data, dtype=np.uint8)
-            fst_uint8, mid_uint8, lst_uint8 = np.reshape(data, (data.shape[0] // 3, 3)).astype(np.uint16).T
-            fst_uint12 = (fst_uint8 << 4) + (mid_uint8 >> 4)
-            snd_uint12 = ((mid_uint8 % 16) << 8) + lst_uint8
-            data = np.reshape(np.concatenate((fst_uint12[:, None], snd_uint12[:, None]), axis=1), 2 * fst_uint12.shape[0])
+            dtype=np.uint16
+        else:
+            dtype=np.uint8
+        int_data = np.zeros(NumberPoints, dtype=dtype)
+        fp_data = np.zeros(NumberPoints)
+        for s in range(segments):
+            # validate and remove the offset word:
+            start = s*bytes_per_segment
+            stop = (s+1)*bytes_per_segment
+            if list(data[stop-5:stop]) != [0xff, 0x00, 0xee, 0x11, 0xdd]:
+                scope_logger.error('Unexpected offset word: %s' % data[-6:])
+                offset = 0
+            else:
+                offset = data[stop-6]
+            scope_logger.debug('offset extracted from payload: %d' % offset)
 
-        self._int_data = data[:NumberPoints]
-        fpData = data / 2**self._bits_per_sample - self.offset
-        return fpData[:NumberPoints]
+            sdata = np.frombuffer(data[start:stop-6], dtype=np.uint8)
+            if self._bits_per_sample == 12:
+                fst_uint8, mid_uint8, lst_uint8 = np.reshape(sdata, (sdata.shape[0] // 3, 3)).astype(np.uint16).T
+                fst_uint12 = (fst_uint8 << 4) + (mid_uint8 >> 4)
+                snd_uint12 = ((mid_uint8 % 16) << 8) + lst_uint8
+                sdata = np.reshape(np.concatenate((fst_uint12[:, None], snd_uint12[:, None]), axis=1), 2 * fst_uint12.shape[0])
+
+            sdata = np.frombuffer(sdata[offset:offset+samples_per_segment], dtype=dtype)
+            int_data[s*samples_per_segment:(s+1)*samples_per_segment] = sdata
+            fp_data[s*samples_per_segment:(s+1)*samples_per_segment] = sdata / 2**self._bits_per_sample - self.fp_offset
+
+            dataread = 'samples (without offset) (%d samples): ' % len(data)
+            for b in data:
+                dataread += '%3x ' % b
+            dataread += '\n'
+            scope_logger.debug(dataread)
+
+        self._int_data = int_data
+        return fp_data
 
 
     def processData(self, data, pad=float('NaN'), debug=False):
@@ -985,9 +1082,9 @@ class OpenADCInterface(util.DisableNewAttr):
 
                 # print "%x %x %x"%(intpt1, intpt2, intpt3)
 
-                fpData.append(float(intpt1) / 1024.0 - self.offset)
-                fpData.append(float(intpt2) / 1024.0 - self.offset)
-                fpData.append(float(intpt3) / 1024.0 - self.offset)
+                fpData.append(float(intpt1) / 1024.0 - self.fp_offset)
+                fpData.append(float(intpt2) / 1024.0 - self.fp_offset)
+                fpData.append(float(intpt3) / 1024.0 - self.fp_offset)
                 intData.extend([intpt1, intpt2, intpt3])
                 
         else:
@@ -1011,7 +1108,7 @@ class OpenADCInterface(util.DisableNewAttr):
             fpData = np.reshape(data[:, [0, 1, 2]], (-1))
             trigger = data[:, 3] % 4
             self._int_data = np.array(fpData, dtype='int16')
-            fpData = fpData / 1024.0 - self.offset
+            fpData = fpData / 1024.0 - self.fp_offset
             scope_logger.debug("Trigger_data: {} len={}".format(trigger, len(trigger)))
             scope_logger.debug("Unprocessed data, fpData: {}, int_data: {}".format(len(fpData), len(self._int_data)))
 
@@ -1623,7 +1720,7 @@ class TriggerSettings(util.DisableNewAttr):
             if diff > 0:
                 scope_logger.warning("Sakura G samples must be divisible by 12, rounding up to {}...".format(samples))
 
-        if self._get_fifo_fill_mode() == "segment":
+        if not self._is_husky and self._get_fifo_fill_mode() == "segment":
             diff = ((3 - (samples - 1)) % 3)
             samples += diff
             if diff > 0:
@@ -1926,12 +2023,11 @@ class TriggerSettings(util.DisableNewAttr):
         segments = int.from_bytes(cmd, byteorder='little')
         return segments
 
-
     def _set_segments(self, num):
-        self.oa.sendMessage(CODE_WRITE, "NUM_SEGMENTS", list(int.to_bytes(num, length=2, byteorder='little')))
-        # necessary for streaming to work:
-        self.oa.setNumSamples(self.samples, self.segments)
-
+        # Notify capture system:
+        self.oa.setSegments(num)
+        # necessary for streaming to work: TODO!
+        self.oa.setNumSamples(self.samples)
 
     @property
     def errors(self) -> Union[str, bool, int]:
@@ -2239,8 +2335,8 @@ class TriggerSettings(util.DisableNewAttr):
         self.oa.sendMessage(CODE_WRITE, "ADC_LOW_RES", [val])
         # Notify capture system:
         self.oa.setBitsPerSample(bits)
-        # necessary for streaming to work:
-        self.oa.setNumSamples(self.samples, self.segments)
+        # necessary for streaming to work: - TODO!
+        self.oa.setNumSamples(self.samples)
 
     def _get_bits_per_sample(self):
         return self._bits_per_sample
@@ -2289,13 +2385,9 @@ class TriggerSettings(util.DisableNewAttr):
     def _set_num_samples(self, samples):
         if samples < 0 or not type(samples) is int:
             raise ValueError("Samples must be a positive integer")
-        if self._is_husky and samples < 7:
+        if self._is_husky and samples < 7: # TODO?
             scope_logger.warning('There may be issues with this few samples on Husky; a minimum of 7 samples is recommended')
-        if self._is_husky:
-            segments = self.segments
-        else:
-            segments = 1
-        self.oa.setNumSamples(samples, segments)
+        self.oa.setNumSamples(samples)
 
     def _get_num_samples(self):
         if self.oa is None:
