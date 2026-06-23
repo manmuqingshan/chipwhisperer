@@ -86,7 +86,7 @@ class OpenADCInterface(util.DisableNewAttr):
         self.hwMaxSamples = 0
         self.hwMaxSegmentSamples = 0
         self._stream_len = 0
-        self._total_samples = 0
+        self._total_samples = 0 # TODO: I don't think this actually needs to be a class property? check Pro
         self._int_data = None
         self._stream_rx_bytes = 0
         self._clear_caches()
@@ -155,7 +155,10 @@ class OpenADCInterface(util.DisableNewAttr):
 
     def setStreamMode(self, stream):
         self._stream_mode = stream
-        self.updateStreamBuffer()
+        if self._is_husky:
+            self.updateHuskySamplesRegister()
+        else:
+            self.updateStreamBuffer()
 
     def setStreamSegmentSize(self, size):
         self._stream_segment_size = size
@@ -443,6 +446,7 @@ class OpenADCInterface(util.DisableNewAttr):
 
     def _setMaxSamples(self):
         """Note: this is only intended to be called when connecting. If used outside of this, cached register values may be not reflect reality.
+        TODO: how to handle 8b/12b?
         """
         if self._is_husky:
             self.hwMaxSamples = self.numMaxSamples()
@@ -473,14 +477,14 @@ class OpenADCInterface(util.DisableNewAttr):
             self.updateHuskySamplesRegister()
         else:
             self.sendMessage(CODE_WRITE, "SAMPLES_ADDR", list(int.to_bytes(samples, length=4, byteorder='little')))
-        self.updateStreamBuffer(samples*self._segments)
+            self.updateStreamBuffer(samples*self._segments)
 
     def updateHuskySamplesRegister(self):
         # Husky needs to be told more than just scope.adc.samples;
         # it also needs to be told:
         # - the number of samples to collect (different from scope.adc.samples!)
         # - the total number of streaming bytes to read
-        samples = self._samples # TODO: initialized? check upon connection!
+        samples = self._samples
         segments = self._segments
         bits_per_sample = self._bits_per_sample
 
@@ -518,20 +522,21 @@ class OpenADCInterface(util.DisableNewAttr):
         streaming_bytes_to_read = bytes_to_read * segments
         self._bytes_to_read = bytes_to_read
         samples_combo = (streaming_bytes_to_read << 64) + (samples << 32) + samples_to_collect
-        scope_logger.debug('XXX Bytes to read: %d' % bytes_to_read)
-        scope_logger.debug('XXX Samples to collect: %d' % samples_to_collect)
+        scope_logger.debug('Bytes to read: %d' % bytes_to_read)
+        scope_logger.debug('Samples to collect: %d' % samples_to_collect)
         self.sendMessage(CODE_WRITE, "SAMPLES_ADDR", list(int.to_bytes(samples_combo, length=12, byteorder='little')))
+        self.updateStreamBuffer(bytes_to_read)
+
 
     def updateStreamBuffer(self, samples=None):
+        if samples is not None:
+            scope_logger.debug('updateStreamBuffer: %d' % samples)
         # yes this is a bit weird but it is so:
         if samples is not None:
             self._total_samples = samples
         if self._is_husky:
             if self._stream_mode:
-                sbuf_len = int(self._total_samples * self._bits_per_sample / 8)
-                if sbuf_len % 3:
-                    # need to capture a multiple of 3 otherwise processHuskyData may fail - TODO update!!!
-                    sbuf_len += 3 - sbuf_len % 3
+                sbuf_len = samples # actually bytes_to_read
                 self._sbuf = array.array('B', [0]) * sbuf_len
                 # For CW-Pro, _stream_len is the number of (10-bit) samples (which was previously set), whereas for Husky, to accomodate 8/12-bit samples, 
                 # it's the total number of bytes, so we need to update _stream_len accordingly:
@@ -947,7 +952,6 @@ class OpenADCInterface(util.DisableNewAttr):
             return datapoints
 
 
-
     def readHuskyData(self, NumberPoints=None):
         # NumberPoints is the number of samples to return (i.e. scope.adc.samples * scope.adc.segments);
         # the number of *bytes* to read was calculated when scope.adc properties were set
@@ -972,25 +976,7 @@ class OpenADCInterface(util.DisableNewAttr):
         scope_logger.debug("read %d bytes; NumberPoints=%d, bytes_to_read=%d" % (len(data), NumberPoints, bytes_to_read))
         if data is not None:
             data = np.array(data)
-            #datapoints = self.processHuskyData(NumberPoints, data)
-            '''
-            if segments > 1:
-                datapoints = []
-                for s in range(segments):
-                    sdata = self.processHuskyData(NumberPoints//segments, data[s*bytes_per_segment:(s+1)*bytes_per_segment])
-                    datapoints.extend(sdata)
-                    #dataread = 'Segment %d data read (%d NumberPoints): ' % (s, len(sdata))
-                    #for b in sdata:
-                    #    dataread += '%3x ' % b
-                    #dataread += '\n'
-                    #self.dut._log.info(dataread)
-            else:
-                datapoints = self.processHuskyData(NumberPoints, data)
-            '''
-
             datapoints = self.processHuskyData(NumberPoints, segments, bytes_per_segment, data)
-
-
         if datapoints is None:
             return []
         return datapoints
@@ -2026,7 +2012,7 @@ class TriggerSettings(util.DisableNewAttr):
     def _set_segments(self, num):
         # Notify capture system:
         self.oa.setSegments(num)
-        # necessary for streaming to work: TODO!
+        # necessary for streaming to work: TODO: should not be needed anymore! because above will call updateHuskySamplesRegister()
         self.oa.setNumSamples(self.samples)
 
     @property
@@ -2335,7 +2321,7 @@ class TriggerSettings(util.DisableNewAttr):
         self.oa.sendMessage(CODE_WRITE, "ADC_LOW_RES", [val])
         # Notify capture system:
         self.oa.setBitsPerSample(bits)
-        # necessary for streaming to work: - TODO!
+        # necessary for streaming to work: TODO: should not be needed anymore! because above will call updateHuskySamplesRegister()
         self.oa.setNumSamples(self.samples)
 
     def _get_bits_per_sample(self):
@@ -2385,7 +2371,7 @@ class TriggerSettings(util.DisableNewAttr):
     def _set_num_samples(self, samples):
         if samples < 0 or not type(samples) is int:
             raise ValueError("Samples must be a positive integer")
-        if self._is_husky and samples < 7: # TODO?
+        if self._is_husky and samples < 7: # TODO: update?
             scope_logger.warning('There may be issues with this few samples on Husky; a minimum of 7 samples is recommended')
         self.oa.setNumSamples(samples)
 
