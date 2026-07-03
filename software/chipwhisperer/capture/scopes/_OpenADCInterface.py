@@ -492,28 +492,28 @@ class OpenADCInterface(util.DisableNewAttr):
         # calculate the actual number of samples that will be collected per segment:
         # 1. account for worst-case offset:
         if bits_per_sample == 12:
-            bytes_to_read = samples + 3
-        else:
             bytes_to_read = samples + 5
+        else:
+            bytes_to_read = samples + 8
         # 2. turn into bytes:
         if bits_per_sample == 12:
             bytes_to_read = math.ceil(bytes_to_read*1.5)
         else:
             bytes_to_read = bytes_to_read
         # 3. round up to a multiple of the word size (48 bits / 6 bytes):
-        mod = bytes_to_read % 6
+        mod = bytes_to_read % 9
         if mod:
-            bytes_to_read += 6 - mod
+            bytes_to_read += 9 - mod
         # 4. add offset word
-        bytes_to_read += 6
+        bytes_to_read += 9
 
         # similarly, calculate the actual number of *samples* that need to be collected:
         if bits_per_sample == 12:
-            samples_to_collect = samples + 3
-            mod_op = 4
-        else:
             samples_to_collect = samples + 5
             mod_op = 6
+        else:
+            samples_to_collect = samples + 8
+            mod_op = 9
         mod = samples_to_collect % mod_op
         if mod:
             samples_to_collect += mod_op - mod
@@ -994,11 +994,11 @@ class OpenADCInterface(util.DisableNewAttr):
             # validate and remove the offset word:
             start = s*bytes_per_segment
             stop = (s+1)*bytes_per_segment
-            if list(data[stop-5:stop]) != [0xff, 0x00, 0xee, 0x11, 0xdd]:
-                scope_logger.error('Unexpected offset word: %s' % data[-6:])
+            if list(data[stop-8:stop]) != [0xff, 0x00, 0xee, 0x11, 0xdd, 0x00, 0xcc, 0xff]:
+                scope_logger.error('Unexpected offset word: %s (segment=%d)' % (data[stop-8:stop], s))
                 offset = 0
             else:
-                offset = data[stop-6]
+                offset = data[stop-9]
             scope_logger.debug('offset extracted from payload: %d' % offset)
 
             sdata = np.frombuffer(data[start:stop-6], dtype=np.uint8)
@@ -1012,11 +1012,12 @@ class OpenADCInterface(util.DisableNewAttr):
             int_data[s*samples_per_segment:(s+1)*samples_per_segment] = sdata
             fp_data[s*samples_per_segment:(s+1)*samples_per_segment] = sdata / 2**self._bits_per_sample - self.fp_offset
 
-            dataread = 'samples (without offset) (%d samples): ' % len(data)
-            for b in data:
-                dataread += '%3x ' % b
-            dataread += '\n'
-            scope_logger.debug(dataread)
+            # Careful: this can be useful for debugging but leaving it in can *dramatically* slow down runtimes!
+            #dataread = 'samples (without offset) (%d samples): ' % len(data)
+            #for b in data:
+            #    dataread += '%3x ' % b
+            #dataread += '\n'
+            #scope_logger.debug(dataread)
 
         self._int_data = int_data
         return fp_data
