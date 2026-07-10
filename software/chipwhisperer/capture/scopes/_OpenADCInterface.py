@@ -525,7 +525,7 @@ class OpenADCInterface(util.DisableNewAttr):
         scope_logger.debug('Bytes to read: %d' % bytes_to_read)
         scope_logger.debug('Samples to collect: %d' % samples_to_collect)
         self.sendMessage(CODE_WRITE, "SAMPLES_ADDR", list(int.to_bytes(samples_combo, length=12, byteorder='little')))
-        self.updateStreamBuffer(bytes_to_read)
+        self.updateStreamBuffer(streaming_bytes_to_read)
 
 
     def updateStreamBuffer(self, samples=None):
@@ -994,6 +994,11 @@ class OpenADCInterface(util.DisableNewAttr):
             # validate and remove the offset word:
             start = s*bytes_per_segment
             stop = (s+1)*bytes_per_segment
+            # Note: with a large number of segments, the offset extraction,
+            # validation, and data reconstruction here could slow things down a
+            # bit; you could alternatively skip the offset word check and
+            # simply do: 
+            # offset = data[stop-9]
             if list(data[stop-8:stop]) != [0xff, 0x00, 0xee, 0x11, 0xdd, 0x00, 0xcc, 0xff]:
                 scope_logger.error('Unexpected offset word: %s (segment=%d)' % (data[stop-8:stop], s))
                 offset = 0
@@ -1001,7 +1006,7 @@ class OpenADCInterface(util.DisableNewAttr):
                 offset = data[stop-9]
             scope_logger.debug('offset extracted from payload: %d' % offset)
 
-            sdata = np.frombuffer(data[start:stop-6], dtype=np.uint8)
+            sdata = np.frombuffer(data[start:stop-9], dtype=np.uint8)
             if self._bits_per_sample == 12:
                 fst_uint8, mid_uint8, lst_uint8 = np.reshape(sdata, (sdata.shape[0] // 3, 3)).astype(np.uint16).T
                 fst_uint12 = (fst_uint8 << 4) + (mid_uint8 >> 4)
@@ -1012,7 +1017,7 @@ class OpenADCInterface(util.DisableNewAttr):
             int_data[s*samples_per_segment:(s+1)*samples_per_segment] = sdata
             fp_data[s*samples_per_segment:(s+1)*samples_per_segment] = sdata / 2**self._bits_per_sample - self.fp_offset
 
-            # Careful: this can be useful for debugging but leaving it in can *dramatically* slow down runtimes!
+            # Careful: this can be useful for debugging but leaving it in will *dramatically* slow down runtimes!
             #dataread = 'samples (without offset) (%d samples): ' % len(data)
             #for b in data:
             #    dataread += '%3x ' % b
@@ -2416,9 +2421,10 @@ class TriggerSettings(util.DisableNewAttr):
 
     def _set_presamples(self, samples):
         if self._is_husky:
+            # TODO: adjust!
             min_samples = 8
-            max_samples = min(self.samples-2, 32767)
-            presamp_bytes = 2
+            max_samples = min(self.samples-2, 100000) # TODO: 100000 is temporary (not the actual limit)
+            presamp_bytes = 3
             if self.decimate > 1:
                 raise Warning("Decimating with presamples is not supported on Husky.")
         else:
@@ -2429,7 +2435,7 @@ class TriggerSettings(util.DisableNewAttr):
             raise ValueError("Number of pre-trigger samples cannot be less than %d" % min_samples)
         if samples > max_samples:
             if self._is_husky:
-                raise ValueError("Number of pre-trigger samples cannot be larger than the lesser of [total number of samples, 32767] (%d)." % max_samples)
+                raise ValueError("Number of pre-trigger samples cannot be larger than the lesser of [total number of samples, 100000] (%d)." % max_samples)
             else:
                 raise ValueError("Number of pre-trigger samples cannot be larger than the total number of samples (%d)." % max_samples)
 
