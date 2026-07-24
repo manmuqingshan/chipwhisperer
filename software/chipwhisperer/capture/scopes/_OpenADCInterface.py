@@ -67,6 +67,7 @@ class OpenADCInterface(util.DisableNewAttr):
         self.sysFreq = 0
         self._bits_per_sample = 10
         self._bytes_to_read = 0
+        self._samples_to_collect = 0
         self._segments = 1
         self._samples = 1
         self._sbuf = []
@@ -84,7 +85,11 @@ class OpenADCInterface(util.DisableNewAttr):
         self._fast_fifo_read_enable = True
         self._fast_fifo_read_active = False
         self.hwMaxSamples = 0
-        self.hwMaxSegmentSamples = 0
+        self.hwMaxSamples_8b = 0
+        self.hwMaxSamples_12b = 0
+        self.hwMaxPresamples_8b = 0
+        self.hwMaxPresamples_12b = 0
+        self.hwTotalSegmentBytes = 0
         self._stream_len = 0
         self._total_samples = 0 # TODO: I don't think this actually needs to be a class property? check Pro
         self._int_data = None
@@ -440,17 +445,23 @@ class OpenADCInterface(util.DisableNewAttr):
         """
         if value:
             self.setSettings(self.settings() | SETTINGS_RESET, validate=False)
-            self._setMaxSamples()
         else:
             self.setSettings(self.settings() & ~SETTINGS_RESET)
 
     def _setMaxSamples(self):
         """Note: this is only intended to be called when connecting. If used outside of this, cached register values may be not reflect reality.
-        TODO: how to handle 8b/12b?
         """
         if self._is_husky:
-            self.hwMaxSamples = self.numMaxSamples()
-            self.hwMaxSegmentSamples = self.numMaxSegmentSamples()
+            raw = self.sendMessage(CODE_READ, "MAX_SAMPLES_ADDR", maxResp=3*5)
+            maxes = [0]*5
+            for b in range(5):
+                maxes[b] = int.from_bytes(raw[b*3:(b+1)*3], byteorder='little')
+            self.hwTotalSegmentBytes = maxes[0]
+            self.hwMaxPresamples_12b = maxes[1]
+            self.hwMaxPresamples_8b = maxes[2]
+            self.hwMaxSamples_12b = maxes[3]
+            self.hwMaxSamples_8b = maxes[4]
+            self.hwMaxSamples = maxes[3]
         else:
             #Hack to adjust the hwMaxSamples since the number should be smaller than what is being returned
             self.hwMaxSamples = self.numSamples() - 45
@@ -485,11 +496,22 @@ class OpenADCInterface(util.DisableNewAttr):
         # - the number of samples to collect (different from scope.adc.samples!)
         # - the total number of streaming bytes to read
         samples = self._samples
+        presamples = self.presamples_desired
         segments = self._segments
         bits_per_sample = self._bits_per_sample
 
         # This is copied from test_husky_tests.py's _job_setup() (from Husky FPGA repo):
         # calculate the actual number of samples that will be collected per segment:
+        # 0. too-short fix: for very short captures with presamples, we need to capture more samples
+        if presamples:
+            if bits_per_sample == 12:
+                while samples < 20:
+                    samples += 6
+                    print('XXX increased samples to %d (short, presamples)' % samples)
+            elif bits_per_sample == 8:
+                while samples < 29:
+                    samples += 9
+                    print('XXX increased samples to %d (short, presamples)' % samples)
         # 1. account for worst-case offset:
         if bits_per_sample == 12:
             bytes_to_read = samples + 5
@@ -519,13 +541,14 @@ class OpenADCInterface(util.DisableNewAttr):
             samples_to_collect += mod_op - mod
 
         # in support of streaming, calculate the total number of bytes that will be read:
-        streaming_bytes_to_read = bytes_to_read * segments
+        streaming_words_to_read = math.ceil(bytes_to_read * segments / 9)
         self._bytes_to_read = bytes_to_read
-        samples_combo = (streaming_bytes_to_read << 64) + (samples << 32) + samples_to_collect
+        self._samples_to_collect = samples_to_collect
+        samples_combo = (streaming_words_to_read << 64) + (samples << 32) + samples_to_collect
         scope_logger.debug('Bytes to read: %d' % bytes_to_read)
         scope_logger.debug('Samples to collect: %d' % samples_to_collect)
         self.sendMessage(CODE_WRITE, "SAMPLES_ADDR", list(int.to_bytes(samples_combo, length=12, byteorder='little')))
-        self.updateStreamBuffer(streaming_bytes_to_read)
+        self.updateStreamBuffer(streaming_words_to_read)
 
 
     def updateStreamBuffer(self, samples=None):
@@ -536,7 +559,7 @@ class OpenADCInterface(util.DisableNewAttr):
             self._total_samples = samples
         if self._is_husky:
             if self._stream_mode:
-                sbuf_len = samples # actually bytes_to_read
+                sbuf_len = samples * 9 # samples is actually streaming_words_to_read, where a word is 72 bits; whereas sbuf_len is in bytes
                 self._sbuf = array.array('B', [0]) * sbuf_len
                 # For CW-Pro, _stream_len is the number of (10-bit) samples (which was previously set), whereas for Husky, to accomodate 8/12-bit samples, 
                 # it's the total number of bytes, so we need to update _stream_len accordingly:
@@ -620,19 +643,6 @@ class OpenADCInterface(util.DisableNewAttr):
         else:
             samples = int.from_bytes(self.sendMessage(CODE_READ, "SAMPLES_ADDR", maxResp=4), byteorder='little')
         return samples
-
-    def numMaxSamples(self):
-        """Return the maximum number of samples that can be captured in one go. Husky only."""
-        if not self._is_husky:
-            scope_logger.error("Supported by Husky only.")
-        return int.from_bytes(self.sendMessage(CODE_READ, "MAX_SAMPLES_ADDR", maxResp=4), byteorder='little')
-
-    def numMaxSegmentSamples(self):
-        """Return the maximum number of samples that can be captured in one go when segmenting is used. Husky only."""
-        if not self._is_husky:
-            scope_logger.error("Supported by Husky only.")
-        return int.from_bytes(self.sendMessage(CODE_READ, "MAX_SEGMENT_SAMPLES_ADDR", maxResp=4), byteorder='little')
-
 
     def getBytesInFifo(self):
         if self._is_husky:
@@ -1000,8 +1010,9 @@ class OpenADCInterface(util.DisableNewAttr):
             # simply do: 
             # offset = data[stop-9]
             if list(data[stop-8:stop]) != [0xff, 0x00, 0xee, 0x11, 0xdd, 0x00, 0xcc, 0xff]:
-                scope_logger.error('Unexpected offset word: %s (segment=%d)' % (data[stop-8:stop], s))
-                offset = 0
+                scope_logger.warning('Unexpected offset word, segment %d: %s. Capture invalid; check for errors.' % (s, data[stop-8:stop]))
+                self._int_data = None
+                return None
             else:
                 offset = data[stop-9]
             scope_logger.debug('offset extracted from payload: %d' % offset)
@@ -1587,7 +1598,7 @@ class TriggerSettings(util.DisableNewAttr):
         """Only available on CW-Husky. ** Internal parameter which should not
         be tweaked unless you know what you're doing. **
         
-        For streaming, this many samples must be available to be read from the
+        For streaming, this many bytes must be available to be read from the
         FPGA before the SAM3U starts a burst read of <stream_segment_size>
         bytes.  Normally these parameters are both set to 65536. Under some
         conditions it may be possible to obtain higher streaming performance by
@@ -1601,7 +1612,7 @@ class TriggerSettings(util.DisableNewAttr):
     @stream_segment_threshold.setter
     def stream_segment_threshold(self, size):
         if size < 1 or size > 131070 or not type(size) is int:
-            raise ValueError("Number of segments must be in range [1, 131070]")
+            raise ValueError("Must be in range [1, 131070]")
         self._set_stream_segment_threshold(size)
 
 
@@ -1685,6 +1696,31 @@ class TriggerSettings(util.DisableNewAttr):
         self.clip_errors_disabled = disabled
 
     @property
+    def max_samples(self):
+        """The maximum number of ADC samples (when not streaming). Depends on :class:`bits_per_sample`!
+        Husky-only.
+        """
+        if not self._is_husky:
+            raise ValueError("For CW-Husky only.")
+        if self.bits_per_sample == 8:
+            return self.oa.hwMaxSamples_8b
+        else:
+            return self.oa.hwMaxSamples_12b
+
+    @property
+    def max_presamples(self):
+        """The maximum number of ADC presamples. Depends on :class:`bits_per_sample`!
+        Husky-only.
+        """
+        if not self._is_husky:
+            raise ValueError("For CW-Husky only.")
+        if self.bits_per_sample == 8:
+            return self.oa.hwMaxPresamples_8b
+        else:
+            return self.oa.hwMaxPresamples_12b
+
+
+    @property
     def samples(self):
         """The number of ADC samples to record in a single capture.
 
@@ -1740,6 +1776,8 @@ class TriggerSettings(util.DisableNewAttr):
             return 'SEGMENT_DONE'
         elif state == 5:
             return 'DONE'
+        elif state == 6:
+            return 'SAVE_OFFSET'
         else:
             raise ValueError("Unexpected value: %d" % state)
 
@@ -2110,8 +2148,24 @@ class TriggerSettings(util.DisableNewAttr):
         elif raw == 3: return "TRIGGERED"
         elif raw == 4: return "SEGMENT_DONE"
         elif raw == 5: return "DONE"
+        elif raw == 6: return "SAVE_OFFSET"
         else:
             raise ValueError(raw)
+
+    @property
+    def first_error_counts(self):
+        """Reports internal counter values taken when the first error occured. For debugging. Read-only.
+
+        .. warning:: Supported by CW-Husky only.
+        """
+        if not self._is_husky:
+            raise ValueError("For CW-Husky only.")
+        raw = self.oa.sendMessage(CODE_READ, "FIFO_FIRST_ERROR", maxResp=12)
+        rtn = {}
+        rtn['samples'] = int.from_bytes(raw[3:7], byteorder='little')
+        rtn['presamples'] = int.from_bytes(raw[9:12], byteorder='little')
+        rtn['segment'] = int.from_bytes(raw[7:9], byteorder='little')
+        return rtn
 
 
     def _get_errors(self, addr):
@@ -2257,7 +2311,7 @@ class TriggerSettings(util.DisableNewAttr):
     def _set_stream_segment_threshold(self, size):
         scope_logger.warning('Changing this parameter can degrade performance and/or cause reads to fail entirely; use at your own risk.')
         #Write to FPGA
-        self.oa.sendMessage(CODE_WRITE, "STREAM_SEGMENT_THRESHOLD", list(int.to_bytes(size, length=3, byteorder='little')))
+        self.oa.sendMessage(CODE_WRITE, "STREAM_SEGMENT_THRESHOLD", list(int.to_bytes(math.ceil(size/9), length=2, byteorder='little')))
 
 
     def _set_stream_segment_size(self, size):
@@ -2377,8 +2431,6 @@ class TriggerSettings(util.DisableNewAttr):
     def _set_num_samples(self, samples):
         if samples < 0 or not type(samples) is int:
             raise ValueError("Samples must be a positive integer")
-        if self._is_husky and samples < 7: # TODO: update?
-            scope_logger.warning('There may be issues with this few samples on Husky; a minimum of 7 samples is recommended')
         self.oa.setNumSamples(samples)
 
     def _get_num_samples(self):
@@ -2419,54 +2471,49 @@ class TriggerSettings(util.DisableNewAttr):
         offset = int.from_bytes(cmd, byteorder='little')
         return offset
 
-    def _set_presamples(self, samples):
+    def _set_presamples(self, presamples):
         if self._is_husky:
-            # TODO: adjust!
-            min_samples = 8
-            max_samples = min(self.samples-2, 100000) # TODO: 100000 is temporary (not the actual limit)
             presamp_bytes = 3
+        else:
+            presamp_bytes = 4
+
+        if presamples > self.samples:
+            raise ValueError("presamples cannot be larger than samples")
+
+        if self._is_husky:
+            if presamples == 1:
+                raise ValueError("presample = 1 not supported on Husky.")
             if self.decimate > 1:
                 raise Warning("Decimating with presamples is not supported on Husky.")
-        else:
-            min_samples = 0
-            max_samples = self.samples
-            presamp_bytes = 4
-        if samples < min_samples and samples != 0:
-            raise ValueError("Number of pre-trigger samples cannot be less than %d" % min_samples)
-        if samples > max_samples:
-            if self._is_husky:
-                raise ValueError("Number of pre-trigger samples cannot be larger than the lesser of [total number of samples, 100000] (%d)." % max_samples)
-            else:
-                raise ValueError("Number of pre-trigger samples cannot be larger than the total number of samples (%d)." % max_samples)
+            if presamples > self.max_presamples:
+                raise ValueError('Maximum presamples is %d' % max_presamples)
 
-        self.presamples_desired = samples
+        self.presamples_desired = presamples
 
         if self._is_pro or self._is_lite or self._is_husky:
             #CW-1200 Hardware / CW-Lite / CW-Husky
-            samplesact = int(samples)
-            self.presamples_actual = samplesact
+            presamplesact = int(presamples)
+            self.presamples_actual = presamplesact
         else:
             #Other Hardware
-            if samples > 0:
+            if presamples > 0:
                 scope_logger.warning('Pre-sample on CW-Lite is unreliable with many FPGA bitstreams. '
                                 'Check data is reliably recorded before using in capture.')
 
             #enforce samples is multiple of 3
-            samplesact = int(samples / 3)
+            presamplesact = int(presamples / 3)
 
             #Old crappy FIFO system that requires the following
-            if samplesact > 0:
-                samplesact = samplesact + self.presampleTempMargin
+            if presamplesact > 0:
+                presamplesact = presamplesact + self.presampleTempMargin
 
-            self.presamples_actual = samplesact * 3
+            self.presamples_actual = presamplesact * 3
 
-        self.oa.sendMessage(CODE_WRITE, "PRESAMPLES_ADDR", list(int.to_bytes(samplesact, length=presamp_bytes, byteorder='little')))
-
-
-        #print "Requested presamples: %d, actual: %d"%(samples, self.presamples_actual)
-
-        self.oa.presamples_desired = samples
-
+        self.oa.sendMessage(CODE_WRITE, "PRESAMPLES_ADDR", list(int.to_bytes(presamplesact, length=presamp_bytes, byteorder='little')))
+        self.oa.presamples_desired = presamples
+        if self._is_husky:
+            # in case short samples + presamples adjustment is required:
+            self.oa.updateHuskySamplesRegister()
         return self.presamples_actual
 
     def _get_presamples(self, cached=False):
@@ -2478,7 +2525,7 @@ class TriggerSettings(util.DisableNewAttr):
             return self.presamples_desired
 
         if self._is_husky:
-            presamp_bytes = 2
+            presamp_bytes = 3
         else:
             presamp_bytes = 4
 
