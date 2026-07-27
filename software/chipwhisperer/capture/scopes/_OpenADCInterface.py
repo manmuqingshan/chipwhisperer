@@ -1697,7 +1697,7 @@ class TriggerSettings(util.DisableNewAttr):
 
     @property
     def max_samples(self):
-        """The maximum number of ADC samples (when not streaming). Depends on :class:`bits_per_sample`!
+        """The maximum number of ADC :class:`samples` (when not streaming). Depends on :class:`bits_per_sample`.
         Husky-only.
         """
         if not self._is_husky:
@@ -1709,7 +1709,8 @@ class TriggerSettings(util.DisableNewAttr):
 
     @property
     def max_presamples(self):
-        """The maximum number of ADC presamples. Depends on :class:`bits_per_sample`!
+        """The maximum number of ADC :class:`presamples`. Depends on :class:`bits_per_sample`.
+        Also cannot exceed :class:`samples`.
         Husky-only.
         """
         if not self._is_husky:
@@ -1719,15 +1720,31 @@ class TriggerSettings(util.DisableNewAttr):
         else:
             return self.oa.hwMaxPresamples_12b
 
+    @property
+    def max_segments(self):
+        """The maximum number of :class:`segments` when not streaming. Depends
+        on several class parameters. To use. first set all other scope.adc
+        properties to their desired values, then use this property to learn the
+        maximum number of segments that you can collect, when not streaming,
+        **for this particular scope.adc configuration**.
+        Husky-only.
+        """
+        if not self._is_husky:
+            raise ValueError("For CW-Husky only.")
+        # Note: once all scope.adc properties are set, scope.adc.oa._bytes_to_read tells us
+        # how many bytes of storage are used *per segment*:
+        return self.oa.hwTotalSegmentBytes // self.oa._bytes_to_read
+
 
     @property
     def samples(self):
         """The number of ADC samples to record in a single capture.
 
         The maximum number of samples is hardware-dependent:
+
         - cwlite: 24400
-        - cw1200: 96000
-        - cwhusky: 131070
+        - cw1200: 96000 (more if streaming)
+        - cwhusky/plus: non-streaming limit depends on :class:`bits_per_sample`; see :class:`max_samples`
 
         :Getter: Return the current number of total samples (integer)
 
@@ -1832,10 +1849,12 @@ class TriggerSettings(util.DisableNewAttr):
         """The number of samples to record from before the trigger event.
 
         This setting must be a positive integer, and it cannot be larger than
-        the number of samples. When streaming mode is enabled, this value is
-        set to 0.
+        the number of samples. 
 
-        :Getter: Return the current number of presamples
+        On the cw1200, presamples must be set to 0 when streaming mode is enabled.
+
+        On Husky and Husky-Plus, the maximum number of presamples depends on 
+        :class:`bits_per_sample`; see :class:`max_presamples`. It also cannot be 1.
 
         :Setter: Set the number of presamples.
 
@@ -1919,7 +1938,7 @@ class TriggerSettings(util.DisableNewAttr):
         Only the 'Normal' mode is well supported, the other modes can
         be used carefully.
 
-        For segmenting on CW-Husky, see 'segments' instead.
+        For segmenting on CW-Husky, use :class:`segments` instead.
 
         There are four possible modes:
          * "normal": Trigger line & logic work as expected.
@@ -2004,9 +2023,18 @@ class TriggerSettings(util.DisableNewAttr):
         .. warning:: Supported by CW-Husky only. For segmenting on CW-lite or
             CW-pro, see 'fifo_fill_mode' instead.
 
-        This setting must be a 16-bit positive integer. 
+        .. warning:: If segments occur "too close" together, a "segmenting
+            error" (see :class:`errors`) will occur. "Too close" depends on too
+            many parameters to be defined (clock rate, number of samples and
+            presamples, and more...); what's important to understand is that
+            insufficient time between segments is what leads to the error.
 
-        In normal operation, segments=1. 
+        :class:`samples` samples are collected for each segment. In normal
+        operation, segments=1. 
+
+        The number of segments must be a 16-bit positive integer, however the
+        maximum may be lower depending on other :class:`TriggerSettings`
+        settings, and will also depend on your hardware (Husky vs Husky-Plus).
 
         Multiple segments are useful in two scenarios:
 
@@ -2020,16 +2048,13 @@ class TriggerSettings(util.DisableNewAttr):
            download trace data between every trigger event. Set
            'segment_cycle_counter_en' to 0 for this segment mode.
 
-        .. warning:: when capturing multiple segments with presamples, the total number of samples 
-            per segment must be a multiple of 3. Incorrect sample data will be obtained if this is not 
-            the case.
+        :Getter: Return the current number of segments
 
-        :Getter: Return the current number of presamples
-
-        :Setter: Set the number of presamples.
+        :Setter: Set the number of segments.
 
         Raises:
            ValueError: if segments is outside of range [1, 2^16-1]
+
         """
 
         if self._cached_segments is None:
@@ -2391,13 +2416,14 @@ class TriggerSettings(util.DisableNewAttr):
     def bits_per_sample(self) -> int:
         """Bits per ADC sample. Only available on CW-Husky.
 
-        Husky has a 12-bit ADC; optionally, we read back only 8 bits per
-        sample.  This does *not* allow for more samples to be collected; it
-        only allows for a faster sampling rate in streaming mode.
+        Choose either 8 or 12 bits per sample. 8 bits per sample allows for
+        1.5x faster sampling rates when streaming, and (almost) 1.5x more
+        samples when not streaming (see :class:`max_samples`). It also affects
+        the maximum number of presamples (see :class:`max_presamples`).
 
-        :Getter: return the number of bits per sample that will be received.
+        :Getter: return the number of bits per sample.
 
-        :Setter: set the number of bits per sample to receive.
+        :Setter: set the number of bits per sample.
         """
         return self._get_bits_per_sample()
 
