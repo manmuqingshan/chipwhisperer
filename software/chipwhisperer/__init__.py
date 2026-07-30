@@ -87,47 +87,6 @@ def list_devices(idProduct : Optional[List[int]]=None, get_sn=True, get_hw_loc=T
     be.usb_ctx.close()
     return rtn
 
-def check_for_updates() -> str:
-    """Check if current ChipWhisperer version is the latest.
-
-    Checks pypi.
-
-    .. versionadded:: 5.6.1
-    """
-    # need to check pip version as old ones don't work for our version check
-    pv = str(subprocess.run([sys.executable, '-m', 'pip', '--version'], capture_output=True, text=True, check=False))
-
-    pip_version = pv[pv.find("stdout=\'pip")+12:pv.find(" from")]
-    if pip_version < '21.1.0':
-        other_logger.warning("Old pip version: {}, unable to do CW version check".format(pip_version))
-        return ""
-
-    latest_version = str(subprocess.run([sys.executable, '-m', 'pip',  '--timeout=3', 'install', '--retries=1', '{}==random'.format("chipwhisperer")],
-                        capture_output=True, text=True, check=False))
-    if (not latest_version) or (latest_version == "none"):
-        raise IOError("Could not check chipwhisperer version")
-    latest_version = latest_version[latest_version.find('(from versions:')+15:]
-    latest_version = latest_version[:latest_version.find(')')]
-    latest_version = latest_version.replace(' ','').split(',')[-1]
-    if (not latest_version) or (latest_version == "none"):
-        raise IOError("Could not check chipwhisperer version")
-
-    current_version = __version__
-
-    other_logger.info("CW version: {}. Latest: {}".format(current_version, type(latest_version)))
-
-    if latest_version <= current_version:
-        other_logger.info("ChipWhisperer up to date")
-        return latest_version
-    else:
-        other_logger.warning("ChipWhisperer update available! See https://chipwhisperer.readthedocs.io/en/latest/updating.html for updating instructions")
-        return latest_version
-
-# try:
-#     check_for_updates()
-# except Exception as e:
-#     other_logger.warning("Could not check ChipWhisperer version, error {}".format(e))
-# from chipwhisperer.capture.scopes.cwhardware import ChipWhispererSAM3Update as CWFirmwareUpdate
 
 ktp = key_text_patterns #alias
 
