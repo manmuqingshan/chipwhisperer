@@ -2091,6 +2091,8 @@ class TriggerSettings(util.DisableNewAttr):
         .. warning:: Supported by CW-Husky only.
 
         Error types and their causes:
+            * 'trigger too soon error': capture trigger occurs before the
+              scope is armed and ready.
             * 'presample error': capture trigger occurs before the requested
               number of presamples have been collected. Reduce 
               scope.adc.presamples or delay the capture trigger.
@@ -2099,8 +2101,6 @@ class TriggerSettings(util.DisableNewAttr):
             * 'gain too low error': gain is "too low" (4 bits or more of the ADC's
               dynamic range did not get used); increase it (scope.gain) or 
               disable this error (scope.adc.lo_gain_errors_disabled).
-            * 'invalid downsample setting': using downsampling (aka decimating) with
-              presamples and multiple segments is not allowed.
             * 'segmenting error': the condition for starting the capture of the next
               segment came true before the capture of the current segment
               completed. Reduce the segment size and/or increase the time
@@ -2204,7 +2204,7 @@ class TriggerSettings(util.DisableNewAttr):
         if raw[0] & 8:   stat += 'fast FIFO overflow, '
         if raw[0] & 16:  stat += 'presample error, '
         if raw[0] & 32:  stat += 'ADC clipped, '
-        if raw[0] & 64:  stat += 'invalid downsample setting, '
+        if raw[0] & 64:  stat += 'internal error, '
         if raw[0] & 128: stat += 'segmenting error, '
         if raw[1] & 1:   stat += 'gain too low error, '
         if raw[1] & 2:   stat += 'trigger too soon error, '
