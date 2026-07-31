@@ -15,7 +15,6 @@ dependencies = [
         "numpy>=2.0.0",
         "libusb1",
         "ECpy",
-        "fastdtw",
         "Cython",
         "tqdm",
         "libusb1",
