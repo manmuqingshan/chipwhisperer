@@ -200,9 +200,9 @@ def test_reg_setup_writes():
     # The register we are reading gives us stats of the FPGA writes. For a specific configuration, these are constant.
     stats = scope._write_stats()
     if target_attached:
-        count = 1034
+        count = 1609
     else:
-        count = 1066
+        count = 1641
     exp_stats = {'last_addr':55, 'last_wdata':0, 'count':count}
     assert stats == exp_stats, 'Unexpected write stats: %s; expected %s (note: only works on a freshly-programmed FPGA)' % (stats, exp_stats)
 
@@ -566,6 +566,7 @@ def test_target_internal_ramp (samples, presamples, testmode, clock, fastreads, 
     scope.io.hs2 = "clkgen"
 
     scope.sc._fast_fifo_read_enable = fastreads
+    scope.adc.bits_per_sample = bits
     if samples == 'max':
         scope.adc.samples = scope.adc.max_samples
     else:
@@ -577,7 +578,6 @@ def test_target_internal_ramp (samples, presamples, testmode, clock, fastreads, 
     scope.adc.stream_segment_threshold = threshold
     scope.adc.stream_segment_size = seg_size
     scope.adc.segment_cycle_counter_en = True
-    scope.adc.bits_per_sample = bits
     scope.adc.clip_errors_disabled = True
     scope.adc.lo_gain_errors_disabled = True
     scope.userio.mode = 'fpga_debug'

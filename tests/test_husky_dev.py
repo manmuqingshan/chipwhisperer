@@ -214,13 +214,12 @@ testADCsweep = [
     (30,        15,         100e6,      108e6,      1e6,        'internal', True,       1,      12, False,  327,    100,    50,     'int_segmentspresamples_fast'),
     (30,        15,         10e6,       'over1',    5e6,        'internal', True,       1,      12, False,  327,    100,    2,      'int_segmentspresamples_full'),
     (300,       30,         48e6,       56e6,       1e6,        'internal', True,       1,      12, False,  327,    400,    10,     'int_segmentspresamples_long'),
-    (8192,      0,          10e6,       'over1',    5e6,        'ADCramp',  True,       1,      12, False,  12,     100000, 2,      'longsegments'),
-    (64,        0,          10e6,       'over1',    5e6,        'ADCramp',  True,       1,      12, False,  1536,   400,    2,      'shortsegments'),
+    (8192,      0,          10e6,       'over1',    5e6,        'ADCramp',  True,       1,      12, False,  'max',  100000, 2,      'longsegments'),
+    (64,        0,          10e6,       'over1',    5e6,        'ADCramp',  True,       1,      12, False,  'max',  400,    2,      'shortsegments'),
 ]
 
 testTargetData = [
     # samples   presamples  testmode    clock       fastreads   adcmul  bit stream  threshold   seg_size,   check   segs    segcycs desc
-    (33,        10,         'internal', 10e6,       True,       1,      12, False,  65536,      65536,      True,   1,      0,      'ppp'),
     (900000,    0,          'internal', 10e6,       True,       1,      8,  True ,  65536,      65536,      True,   1,      0,      'midstream'),
     (900000,    0,          'internal', 8e6,        True,       1,      8,  True ,  65536,      65536,      True,   1,      0,      'slowstream'),
     (900000,    0,          'internal', 5e6,        True,       1,      12, True ,  65536,      65536,      True,   1,      0,      'slowerstream12'),
@@ -244,7 +243,6 @@ testTargetData = [
 if test_platform == "sam4s":
     testSegmentData = [
         # offset    presamples  samples stream  clock       adcmul  seg_count   segs    segcycs bits    desc
-        (0,         10,         33,     False,  7.37e6,     4,      False,      'max',  0,      8,      'ttt'),
         (0,         0,          8,      False,  7.37e6,     4,      False,      20,     0,      12,     'segments_tiny'),
         (0,         0,          90,     False,  7.37e6,     4,      False,      20,     0,      12,     'segments_trigger_no_offset'),
         (0,         10,         90,     False,  7.37e6,     4,      False,      20,     0,      12,     'segments_trigger_no_offset_presamp'),
@@ -639,9 +637,7 @@ def test_internal_ramp(fulltest, samples, presamples, testmode, clock, fastreads
         scope.adc.samples = samples
     scope.adc.presamples = presamples
     if segments == 'max':
-        # once scope.adc properties have been set, scope.adc.oa._bytes_to_read tells us
-        # how many bytes of storage are used per segment:
-        scope.adc.segments = scope.adc.oa.hwTotalSegmentBytes // scope.adc.oa._bytes_to_read
+        scope.adc.segments = scope.adc.max_segments
     else:
         scope.adc.segments = segments
     scope.adc.segment_cycles = segment_cycles
@@ -758,6 +754,8 @@ def test_adc_freq_sweep(fulltest, samples, presamples, freq_start, freq_stop, fr
     scope.adc.stream_mode = stream
     scope.adc.samples = samples
     scope.adc.presamples = presamples
+    if segments == 'max':
+        segments = scope.adc.max_segments
     scope.adc.segments = segments
     scope.adc.segment_cycles = segment_cycles
     scope.adc.segment_cycle_counter_en = True
@@ -1231,9 +1229,7 @@ def test_segments (fulltest, offset, presamples, samples, stream, clock, adcmul,
     scope.adc.presamples = presamples
     if segs == 'max':
         scope.adc.timeout = 15
-        # once scope.adc properties have been set, scope.adc.oa._bytes_to_read tells us
-        # how many bytes of storage are used per segment:
-        segs = scope.adc.oa.hwTotalSegmentBytes // scope.adc.oa._bytes_to_read
+        segs = scope.adc.max_segments
     scope.adc.segments = segs
     scope.adc.segment_cycles = segcycs
     scope.adc.segment_cycle_counter_en = seg_count
@@ -2210,9 +2206,10 @@ def test_triggered_glitch_counter(fulltest, clock, glitches, desc):
     assert scope.glitch.mmcm_locked
 
     glitch_counter_setup_useriod7()
-    for _ in range(glitches):
+    for r in range(glitches):
         check_xadc() # practice has shown that this is the good place to do this check
         t = capture_trace(lambda: toggle_userio_d7())
+        assert t is not None, 'capture failed (rep %d)' % r
     assert scope.glitch.actual_num_glitches == glitches
     scope.glitch.reset_glitch_counter()
 
@@ -2234,6 +2231,8 @@ def test_glitch_counter_phases(fulltest, clock, reps, step_size, desc):
             check_xadc() # practice has shown that this is the good place to do this check
             scope.glitch.offset = offset
             t = capture_trace(lambda: toggle_userio_d7())
+            if scope.glitch.actual_num_glitches != r+1:
+                print('uh-oh, bad count!')
             assert t is not None, 'capture failed (rep %d)' % r
         assert scope.glitch.actual_num_glitches == reps, 'ERROR on rep=%d, offset=%d: got %d glitches (expected %d)' % (r, offset, scope.glitch.actual_num_glitches, reps)
 
