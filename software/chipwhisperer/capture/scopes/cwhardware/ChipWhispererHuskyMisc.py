@@ -816,15 +816,15 @@ class USERIOSettings(util.DisableNewAttr):
 
     # fpga_mode = 12:
     fpga_mode_definitions[12] = ['trigger_unit.v debug2',
-                                 ['arm_i',
-                                  'adc_capture_done',
-                                  'trigger',
+                                 ['triggered',
+                                  'armed_and_ready',
+                                  'armed',
+                                  'trigger_level_match',
                                   'capture_active_o',
-                                  'int_reset_capture',
                                   'capture_go_start',
-                                  'capture_go_o',
-                                  'adc_delay_cnt == 0',
-                                  'ununsed']]
+                                  'resetarm',
+                                  'int_reset_capture',
+                                  'unused']]
 
     # fpga_mode = 13:
     fpga_mode_definitions[13] = ['sequencer debug (2 triggers)',
