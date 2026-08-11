@@ -509,6 +509,11 @@ testGlitchCountPhasesData = [
     ('max', 10,     1,          'sweep_phase_max_SLOW'),
 ]
 
+testAsyncTriggerData = [
+    #clock_stop     clock_step  steps   captures    desc
+    ('max',         10e6,       1,      300,        'async_trigger'),
+    ('max',         10e6,       5,      1000,       'async_trigger_SLOW'),
+]
 
 
 def test_fpga_version():
@@ -2251,6 +2256,41 @@ def glitch_counter_setup_useriod7():
 def toggle_userio_d7():
     scope.userio.pins[7].drive_data = 1
     scope.userio.pins[7].drive_data = 0
+
+
+@pytest.mark.parametrize("clock_stop, clock_step, steps, captures, desc", testAsyncTriggerData)
+def test_async_trigger(fulltest, clock_stop, clock_step, steps, captures, desc):
+    # covers https://github.com/newaetech/chipwhisperer/issues/584
+    if not fulltest and 'SLOW' in desc:
+        pytest.skip("use --fulltest to run")
+        return None
+    if clock_stop == 'max':
+        clock_stop = MAXCLOCK
+    steps -= 1
+    clock_start = clock_stop - clock_step * steps
+    scope.adc.disable_clip_and_lo_gain_errors(True)
+    scope.trigger.module = 'basic'
+    scope.trigger.triggers = 'userio_d7'
+    scope.adc.timeout = 0.1
+    scope.clock.adc_mul = 1
+    scope.userio.mode = 'normal'
+    scope.userio.pins[7].direction = 'output'
+    for clock in range(int(clock_start), int(clock_stop+clock_step), int(clock_step)):
+        hits = 0
+        misses = 0
+        scope.clock.clkgen_freq = clock
+        time.sleep(0.1)
+        print('Running %d...' % clock)
+        for c in range(captures):
+            trace = capture_trace(lambda: toggle_userio_d7())
+            if trace is None:
+                #print('.', end='')
+                misses += 1
+                assert False
+            else:
+                hits += 1
+        assert misses == 0, '%d hits, %d misses' % (hits, misses)
+
 
 def capture_trace(sendcommand, as_int=False):
     scope.arm()
