@@ -1798,6 +1798,17 @@ class TriggerSettings(util.DisableNewAttr):
         else:
             raise ValueError("Unexpected value: %d" % state)
 
+    def fifo_debug_summary(self):
+        """For debug. Convenience function to gather all relevant statuses from fifo_top_husky.v.
+        """
+        print('Errors:                %s' % self.errors)
+        print('First error:           %s' % self.first_error)
+        print('First error state:     %s' % self.first_error_state)
+        print('First error counts:    %s' % self.first_error_counts)
+        print('Current state:         %s' % self.fifo_state)
+        print('Fast FIFO (USB) empty: %s' % self.fast_fifo_empty)
+        print('Slow FIFO (USB) empty: %s' % self.slow_fifo_empty)
+
 
     @property
     def timeout(self):
@@ -2216,6 +2227,27 @@ class TriggerSettings(util.DisableNewAttr):
         if stat == '':
             stat = False
         return stat
+
+
+    @property
+    def fast_fifo_empty(self):
+        if self.oa is None:
+            return 0
+        # check bit 24:
+        if self.oa.sendMessage(CODE_READ, 'FIFO_STAT', maxResp=4)[3] & 1:
+            return True
+        else:
+            return False
+
+    @property
+    def slow_fifo_empty(self):
+        if self.oa is None:
+            return 0
+        # check bit 14:
+        if self.oa.sendMessage(CODE_READ, 'FIFO_STAT', maxResp=2)[1] & 2**6:
+            return True
+        else:
+            return False
 
 
     @property
