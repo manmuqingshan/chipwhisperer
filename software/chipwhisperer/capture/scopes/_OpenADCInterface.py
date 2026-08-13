@@ -13,7 +13,7 @@ import datetime
 from ...common.utils import util
 import array
 import numpy as np
-from collections import OrderedDict
+from collections import OrderedDict, deque
 import copy
 import io
 import re
@@ -94,6 +94,7 @@ class OpenADCInterface(util.DisableNewAttr):
         self._total_samples = 0 # TODO: I don't think this actually needs to be a class property? check Pro
         self._int_data = None
         self._stream_rx_bytes = 0
+        self._offsets = deque(maxlen=10) # purely for debugging: keep around the 10 last extracted offsets
         self._clear_caches()
 
         self._slurp_registers()
@@ -1016,6 +1017,7 @@ class OpenADCInterface(util.DisableNewAttr):
             else:
                 offset = data[stop-9]
             scope_logger.debug('offset extracted from payload: %d' % offset)
+            self._offsets.append(offset) # for debugging
 
             sdata = np.frombuffer(data[start:stop-9], dtype=np.uint8)
             if self._bits_per_sample == 12:
