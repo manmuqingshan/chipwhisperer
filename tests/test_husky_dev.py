@@ -175,10 +175,10 @@ testData = [
     ('max',     0,          'internal', 20e6,       True,       1,      8,  False,  1,      0,      1,      'maxsamples8_SLOW'),
     ('max',     0,          'internal', 20e6,       True,       1,      12, False,  1,      0,      1,      'maxsamples12'),
     (300,       0,          'internal', 20e6,       True,       1,      8,  False,  10,     1000,   1,      'evensegments8_SLOW'),
-    (50,        0,          'internal', 20e6,       True,       1,      8,  False,  100,    100,    1,      'oddsegments8_SLOW'),
+    (50,        0,          'internal', 20e6,       True,       1,      8,  False,  100,    250,    1,      'oddsegments8_SLOW'),
     (300,       0,          'internal', 20e6,       True,       1,      12, False,  10,     1000,   1,      'evensegments12_SLOW'),
-    (50,        0,          'internal', 20e6,       True,       1,      12, False,  100,    100,    1,      'oddsegments12'),
-    (300,       30,         'internal', 20e6,       True,       1,      12, False,  20,     500,    1,      'presamplesegments'),
+    (50,        0,          'internal', 20e6,       True,       1,      12, False,  100,    250,    1,      'oddsegments12'),
+    (300,       30,         'internal', 20e6,       True,       1,      12, False,  20,     600,    1,      'presamplesegments'),
     ('max',     0,          'internal', 10e6,       True,       1,      12, False,  1,      0,      1,      'slow_SLOW'),
     ('max',     0,          'internal', 80e6,       True,       1,      12, False,  1,      0,      1,      'fast_SLOW'),
     ('max',     0,          'internal', 'max',      True,       1,      12, False,  1,      0,      10,     'fastest'),
@@ -191,13 +191,25 @@ testData = [
     ('max',     0,          'ADCramp',  'over2',    True,       1,      12, False,  1,      0,      1,      'ADCoverclocked'),
     (8192,      0,          'ADCramp',  10e6,       True,       1,      12, False,  12,     10000,  1,      'ADClongsegments_SLOW'),
     (64,        0,          'ADCramp',  'max',      True,       1,      12, False,  'max',  400,    10,     'ADCfastsegments'),
-    (300,       30,         'ADCramp',  'max',      True,       1,      12, False,  'max',  400,    10,     'ADCfastsegmentspresamples'),
-    (300,       30,         'ADCramp',  'over2',    True,       1,      12, False,  'max',  400,    1,      'ADCoverclockedsegmentspresamples'),
+    (300,       30,         'ADCramp',  'max',      True,       1,      12, False,  'max',  600,    10,     'ADCfastsegmentspresamples'),
+    (300,       30,         'ADCramp',  'over2',    True,       1,      12, False,  'max',  600,    1,      'ADCoverclockedsegmentspresamples'),
     ('max',     0,          'ADCalt',   20e6,       True,       1,      12, False,  1,      0,      10,     'ADCaltslow_SLOW'),
     ('max',     0,          'ADCalt',   'max',      True,       1,      12, False,  1,      0,      10,     'ADCaltfast'),
     ('max',     0,          'ADCalt',   'over2',    True,       1,      12, False,  1,      0,      1,      'ADCaltoverclocked_SLOW'),
     (500,       0,          'internal', 20e6,       False,      1,      12, False,  1,      0,      1,      'slowreads'),
     ('max',     0,          'internal', 20e6,       False,      1,      12, False,  1,      0,      1,      'maxslowreads_SLOW'),
+]
+
+testMaxSamplesData = [
+    # presamples    clock_start clock_step  bit reps    desc
+    (0,             150e6,      2e6,        8,  2,      'maxsamples_8b_SLOW'),
+    (0,             150e6,      2e6,        12, 2,      'maxsamples_12b'),
+    (10000,         150e6,      2e6,        8,  4,      'maxsamples_8b_midpre_SLOW'),
+    (10000,         150e6,      2e6,        12, 4,      'maxsamples_12b_midpre_SLOW'),
+    ('max',         150e6,      2e6,        8,  4,      'maxsamples_8b_maxpre_SLOW'),
+    ('max',         150e6,      2e6,        12, 4,      'maxsamples_12b_maxpre_SLOW'),
+    (0,             150e6,      1e6,        8,  4,      'maxsamples_8b_fine_SLOW'),
+    (0,             150e6,      1e6,        12, 4,      'maxsamples_12b_fine_SLOW'),
 ]
 
 
@@ -210,10 +222,10 @@ testADCresetData = [
 
 testADCsweep = [
     # samples   presamples  freq_start  freq_stop   freq_step   testmode    fastreads   adcmul  bit stream  segs    segcycs reps    desc
-    (30,        15,         48e6,       56e6,       1e6,        'internal', True,       1,      12, False,  327,    100,    50,     'int_segmentspresamples_slow'),
-    (30,        15,         100e6,      108e6,      1e6,        'internal', True,       1,      12, False,  327,    100,    50,     'int_segmentspresamples_fast'),
-    (30,        15,         10e6,       'over1',    5e6,        'internal', True,       1,      12, False,  327,    100,    2,      'int_segmentspresamples_full'),
-    (300,       30,         48e6,       56e6,       1e6,        'internal', True,       1,      12, False,  327,    400,    10,     'int_segmentspresamples_long'),
+    (30,        15,         48e6,       56e6,       1e6,        'internal', True,       1,      12, False,  327,    250,    50,     'int_segmentspresamples_slow'),
+    (30,        15,         100e6,      108e6,      1e6,        'internal', True,       1,      12, False,  327,    250,    50,     'int_segmentspresamples_fast'),
+    (30,        15,         10e6,       'over1',    5e6,        'internal', True,       1,      12, False,  327,    250,    10,     'int_segmentspresamples_full'),
+    (300,       30,         48e6,       56e6,       1e6,        'internal', True,       1,      12, False,  327,    500,    10,     'int_segmentspresamples_long'),
     (8192,      0,          10e6,       'over1',    5e6,        'ADCramp',  True,       1,      12, False,  'max',  100000, 2,      'longsegments'),
     (64,        0,          10e6,       'over1',    5e6,        'ADCramp',  True,       1,      12, False,  'max',  400,    2,      'shortsegments'),
 ]
@@ -661,6 +673,35 @@ def test_internal_ramp(fulltest, samples, presamples, testmode, clock, fastreads
 
 
 
+@pytest.mark.parametrize("presamples, clock_start, clock_step, bits, reps, desc", testMaxSamplesData)
+def test_max_samples(fulltest, presamples, clock_start, clock_step, bits, reps, desc):
+    if not fulltest and 'SLOW' in desc:
+        pytest.skip("use --fulltest to run")
+        return None
+    reset_setup(scope,target)
+    scope.clock.adc_mul = 1
+    scope.adc.bits_per_sample = bits
+    scope.adc.samples = scope.adc.max_samples
+    if presamples == 'max':
+        presamples = scope.adc.max_presamples
+    scope.adc.presamples = presamples
+    scope.adc.clip_errors_disabled = True
+    scope.adc.lo_gain_errors_disabled = True
+
+    for clock in range(int(clock_start), int(MAXCLOCK+clock_step), int(clock_step)):
+        scope.clock.clkgen_freq = clock
+        time.sleep(0.1)
+        assert scope.clock.pll.pll_locked == True
+        #print(scope.clock.clkgen_freq)
+        for i in range(reps):
+            scope.arm()
+            scope.sc.triggerNow()
+            assert scope.capture() == False
+            raw = np.int64(scope.get_last_trace(True))
+            assert scope.adc.errors == False, "clock = %d, rep %d: %s" % (clock, i, scope.adc.errors)
+
+
+
 @pytest.mark.parametrize("freq_start, freq_stop, freq_step, adc_mul_start, adc_mul_stop, adc_mul_step, desc", testADCresetData)
 def test_adc_reset(fulltest, reps, freq_start, freq_stop, freq_step, adc_mul_start, adc_mul_stop, adc_mul_step, desc):
     # The goal of this test is to ensure that when the FPGA is reset, which scope.con() does, everything works properly.
@@ -777,12 +818,12 @@ def test_adc_freq_sweep(fulltest, samples, presamples, freq_start, freq_stop, fr
         scope.clock.clkgen_freq = clock
         scope.clock.adc_mul = adcmul
         time.sleep(0.1)
-        assert scope.clock.pll.pll_locked == True
-        assert abs(scope.clock.adc_freq - clock * adcmul) <= 10e6
+        assert scope.clock.pll.pll_locked == True, 'clock failed to lock'
+        assert abs(scope.clock.adc_freq - clock * adcmul) <= 10e6, 'clock out of range'
         for i in range(reps):
             scope.arm()
             scope.sc.triggerNow()
-            assert scope.capture(poll_done=True) == False
+            assert scope.capture(poll_done=True) == False, 'capture failed'
             raw = np.int64(scope.get_last_trace(True))
             errors, first_error = check_ramp(raw, testmode, bits, samples, segment_cycles)
 
@@ -1591,8 +1632,8 @@ def test_presamples (fulltest, clock, adc_mul, bits, presamp_range, presamples_s
     scope.trace.enabled = False
     scope.trace.target = None
 
-    scope.adc.lo_gain_errors_disabled = False
-    scope.adc.clip_errors_disabled = False
+    scope.adc.lo_gain_errors_disabled = True
+    scope.adc.clip_errors_disabled = True
     scope.adc.segment_cycle_counter_en = False
 
     scope.adc.bits_per_sample = bits
@@ -1609,25 +1650,48 @@ def test_presamples (fulltest, clock, adc_mul, bits, presamp_range, presamples_s
     scope.trigger.module = 'basic'
     scope.gain.db = 22
     scope.adc.presamples = 0
-    reftrace = cw.capture_trace(scope, target, bytearray(16), bytearray(16), as_int=True)
-    assert scope.adc.errors == False, (scope.adc.errors, scope.gain)
+
+    # We make the target operation longer than our capture to avoid capturing
+    # jittery UART traffic noise that could throw off our SAD scores.
+    target.set_key(bytearray(16))
+    target.simpleserial_write('n', list(int.to_bytes(20, length=2, byteorder='big')))
+    reftrace = capture_trace(lambda: target_go(), as_int=True)
+    # verify our target operation length requirement:
+    assert scope.adc.trig_count >= scope.adc.samples
+    # We only care about over/underlow and presample errors.
+    # There *will* be segmenting errors because the target fires multiple triggers
+    # during our capture.
+    assert 'overflow' not in scope.adc.errors, scope.adc.errors
+    assert 'underflow' not in scope.adc.errors, scope.adc.errors
+    assert 'presample' not in scope.adc.errors, scope.adc.errors
 
     max_sad = 0
     for presamples in range(presamples_min, presamples_max+1, presamples_step):
         scope.adc.presamples = presamples
         scope.adc.samples = presamples + presamples_max
         for i in range(reps):
-            trace = cw.capture_trace(scope, target, bytearray(16), bytearray(16), as_int=True)
+            target.set_key(bytearray(16))
+            target.simpleserial_write('n', list(int.to_bytes(20, length=2, byteorder='big')))
+            trace = capture_trace(lambda: target_go(), as_int=True)
             assert trace is not None, 'Capture failed (presamples=%d)' % presamples
-            assert scope.adc.errors == False
+            # see scope.adc.errors notes above
+            assert 'overflow' not in scope.adc.errors, scope.adc.errors
+            assert 'underflow' not in scope.adc.errors, scope.adc.errors
+            assert 'presample' not in scope.adc.errors, scope.adc.errors
             # compute SW SAD:
             sad = 0
-            for r,s in zip(reftrace.wave[:presamples_max].astype(int), trace.wave[presamples:].astype(int)):
+            for r,s in zip(reftrace[:presamples_max].astype(int), trace[presamples:].astype(int)):
                 sad += abs(r-s)
             assert sad <= threshold, 'SAD=%d, threshold=%d, presamples=%d, rep %d' % (sad, threshold, presamples, i)
             if sad > max_sad:
                 max_sad = sad
+            #print('SAD: %d' % sad)
     #print('max SAD: %d' % max_sad)
+
+
+def target_go():
+    target.simpleserial_write('f', bytearray(16))
+    target.simpleserial_read('r', 16)
 
 
 @pytest.mark.parametrize("clock, adc_mul, bits, presamp_range, presamples_step, offset, reps, threshold, desc", testPresamplesCaptureData)
@@ -1657,8 +1721,8 @@ def test_presamples_capture (fulltest, clock, adc_mul, bits, presamp_range, pres
     scope.trace.enabled = False
     scope.trace.target = None
 
-    scope.adc.lo_gain_errors_disabled = False
-    scope.adc.clip_errors_disabled = False
+    scope.adc.lo_gain_errors_disabled = True
+    scope.adc.clip_errors_disabled = True
     scope.adc.segment_cycle_counter_en = False
 
     scope.adc.bits_per_sample = bits
@@ -2280,7 +2344,7 @@ def test_async_trigger(fulltest, clock_stop, clock_step, steps, captures, desc):
         misses = 0
         scope.clock.clkgen_freq = clock
         time.sleep(0.1)
-        print('Running %d...' % clock)
+        #print('Running %d...' % clock)
         for c in range(captures):
             trace = capture_trace(lambda: toggle_userio_d7())
             if trace is None:
