@@ -667,7 +667,7 @@ class USERIOSettings(util.DisableNewAttr):
     '''
     _name = 'USERIO Control'
 
-    fpga_mode_definitions = [None]*18 # type: list
+    fpga_mode_definitions = [None]*20 # type: list
 
     # fpga_mode = 0:
     fpga_mode_definitions[0] = ['streaming debug',
@@ -701,7 +701,7 @@ class USERIOSettings(util.DisableNewAttr):
                                   'capture_go',
                                   'arming',
                                   'armed_and_ready',
-                                  'fifo_rst',
+                                  'error_flag',
                                   'adc_capture_stop',
                                   'unused']]
 
@@ -884,6 +884,30 @@ class USERIOSettings(util.DisableNewAttr):
                                   'data_drive',
                                   'active',
                                   'trigger_active',
+                                  'unused']]
+
+    # fpga_mode = 18:
+    fpga_mode_definitions[18] = ['fifo_top_husky.v debug2', 
+                                 ['error_flag',
+                                  'presample_fifo_count_full',
+                                  'presample_fifo_count_empty',
+                                  'presample_fifo_count_wr',
+                                  'presample_fifo_count_rd',
+                                  'presample_fifo_count_flush',
+                                  'flushing',
+                                  'arm_pulse_usb',
+                                  'unused']]
+
+    # fpga_mode = 19:
+    fpga_mode_definitions[19] = ['fifo_top_husky.v debug3', 
+                                 ['fast_fifo_empty_wait',
+                                  'save_offset_error',
+                                  'save_offset_usb',
+                                  'raw_empty_flags_adc',
+                                  'fast_fifo_empty_adc',
+                                  'fast_fifo_rd',
+                                  'error_flag',
+                                  'done_writing',
                                   'unused']]
 
 
