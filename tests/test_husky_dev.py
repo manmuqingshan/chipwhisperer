@@ -1330,7 +1330,7 @@ def test_segments (fulltest, offset, presamples, samples, stream, clock, adcmul,
             errors += 1
             bad_ratio = ratio
 
-    assert errors == 0, "Ratios = %s; errors: %s, params = %s" % (ratios, scope.adc.errors, funcparams)
+    assert errors == 0, "Ratios = %80s; errors: %s, params = %s, XADC: %s" % (ratios, scope.adc.errors, funcparams, scope.XADC)
     scope.adc.clip_errors_disabled = True
 
 
@@ -1744,7 +1744,7 @@ def test_presamples_capture (fulltest, clock, adc_mul, bits, presamp_range, pres
             scope.adc.samples = random.randrange(presamples, presamples + 20)
             scope.adc.offset = random.randrange(0, 10)
             trace = cw.capture_trace(scope, target, bytearray(16), bytearray(16), as_int=True)
-            assert trace is not None, 'Capture failed (presamples=%d, samples=%d, offset=%d)' % (presamples, samples, offset)
+            assert trace is not None, 'Capture failed (presamples=%d, samples=%d, offset=%d)' % (presamples, scope.adc.samples, offset)
             assert scope.adc.errors == False
 
 
