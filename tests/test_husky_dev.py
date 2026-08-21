@@ -2390,7 +2390,7 @@ def check_xadc():
     if scope.XADC.status != 'good':
         print(' XADC errors, pausing to cool down...', end='')
         oldclock = scope.clock.clkgen_freq
-        setclock(5e6)
+        scope.clock.clkgen_freq = 5e6
         scope.glitch.enabled = False
         while scope.XADC.status != 'good':
             scope.errors.clear()
