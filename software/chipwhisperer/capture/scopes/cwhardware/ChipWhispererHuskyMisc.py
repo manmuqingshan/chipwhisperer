@@ -914,12 +914,15 @@ class USERIOSettings(util.DisableNewAttr):
 
     trace_pins = ['TMS', 'TCK', 'TDO/SWO', 'unused', 'TRACEDATA[0]', 'TRACEDATA[1]', 'TRACEDATA[2]', 'TRACEDATA[3]', 'TRACECLOCK']
 
-    def __init__(self, oaiface : OAI.OpenADCInterface, trace):
+    def __init__(self, oaiface : OAI.OpenADCInterface, trace, bitbanger):
         super().__init__()
+        self._config_cache = None
+        self._clock_enabled_cached = None
         self._last_mode = None
         self._drive_data = 0
         self.oa = oaiface
         self._trace = trace
+        self._bitbanger = bitbanger
         self.pins = []
         for pin in range(9):
             self.pins.append(USERIOPin(self, pin))
@@ -980,10 +983,21 @@ class USERIOSettings(util.DisableNewAttr):
     def __str__(self):
         return self.__repr__()
 
+    def _get_config(self):
+        if self._config_cache is None:
+            self._config_cache = self.oa.sendMessage(CODE_READ, "USERIO_CONFIG", maxResp=7)
+        return self._config_cache
+
+    def _set_config(self, value):
+        self._config_cache = value
+        self.oa.sendMessage(CODE_WRITE, "USERIO_CONFIG", value)
+
+
     def config_register_write(self, register, value):
         """ Convenience function for setting the registers that got merged into USERIO_CONFIG.
         """
         raw = self.oa.sendMessage(CODE_READ, "USERIO_CONFIG", maxResp=7)
+        raw = self._get_config()
         if register == 'USERIO_CLKSEL':
             raw[0] = value
         elif register == 'USERIO_DEBUG_SELECT':
@@ -997,12 +1011,16 @@ class USERIOSettings(util.DisableNewAttr):
         else:
             raise ValueError()
         self.oa.sendMessage(CODE_WRITE, "USERIO_CONFIG", raw)
+        self._set_config(raw)
 
 
-    def config_register_read(self, register):
+    def config_register_read(self, register, use_cache=True):
         """ Convenience function for reading the registers that got merged into USERIO_CONFIG.
         """
-        raw = self.oa.sendMessage(CODE_READ, "USERIO_CONFIG", maxResp=7)
+        if use_cache:
+            raw = self._get_config()
+        else:
+            raw = self.oa.sendMessage(CODE_READ, "USERIO_CONFIG", maxResp=7)
         if register == 'USERIO_CLKSEL':
             return raw[0]
         elif register == 'USERIO_DEBUG_SELECT':
@@ -1010,8 +1028,12 @@ class USERIOSettings(util.DisableNewAttr):
         elif register == 'USERIO_DEBUG_DRIVEN':
             return raw[2]
         elif register == 'USERIO_CW_DRIVEN':
+            # can't use cache here, do a direct fresh read everytime instead
+            assert not use_cache, 'should not be using cache with %s!' % register
             return int.from_bytes(raw[3:5], byteorder='little')
         elif register == 'USERIO_CLOCK_OUT':
+            # can't use cache here, do a direct fresh read everytime instead
+            assert not use_cache, 'should not be using cache with %s!' % register
             return int.from_bytes(raw[5:7], byteorder='little')
         else:
             raise ValueError()
@@ -1139,7 +1161,13 @@ class USERIOSettings(util.DisableNewAttr):
         by the FPGA and cannot be changed by the user.
         Use with care.
         """
-        return self.config_register_read('USERIO_CW_DRIVEN')
+        # Can't use config_register_read() cached value for this because the hardware
+        # uses several values (not just was is written to USERIO_CW_DRIVEN) to determine
+        # the read value. Caching here would require replicating the hardware logic in
+        # Python, which is error-prone.
+        return self.config_register_read('USERIO_CW_DRIVEN', use_cache=False)
+        #raw = self.oa.sendMessage(CODE_READ, "USERIO_CONFIG", maxResp=5)
+        #return int.from_bytes(raw[3:5], byteorder='little')
 
     @direction.setter
     def direction(self, setting):
@@ -1175,7 +1203,14 @@ class USERIOSettings(util.DisableNewAttr):
         for a binary representation of which USERIO pins can output a clock.
 
         """
-        return self.config_register_read('USERIO_CLOCK_OUT')
+        # can't use config_register_read() cached value for this!
+        # instead use a sub-register-specific cache
+        #return self.config_register_read('USERIO_CLOCK_OUT', use_cache=False)
+        if self._clock_enabled_cached is None:
+            raw = self.oa.sendMessage(CODE_READ, "USERIO_CONFIG", maxResp=7)
+            self._clock_enabled_cached = int.from_bytes(raw[5:7], byteorder='little')
+        return self._clock_enabled_cached
+
 
     @clock_enabled.setter
     def clock_enabled(self, setting):
@@ -1183,6 +1218,7 @@ class USERIOSettings(util.DisableNewAttr):
             raise ValueError("Clocks supported only on pins: %s" % bin(self.clocks_supported))
         else:
             self.config_register_write('USERIO_CLOCK_OUT', setting)
+        self._clock_enabled_cached = None
 
     @property
     def _clock_enabled_list(self):
@@ -1203,11 +1239,11 @@ class USERIOSettings(util.DisableNewAttr):
         return self._reader_2list(self.clock_enabled, 9)
 
     def _check_clocks(self):
-        """To see which USERIO pins can be configured as a clock, write all ones to USERIO_CLOCK_OUT and
-        read back.
+        """To see which USERIO pins can be configured as a clock, write all ones 
+        to USERIO_CLOCK_OUT and read back. Must be called upon initialization.
         """
         self.config_register_write('USERIO_CLOCK_OUT', 0xFFFF)
-        readback = self.config_register_read('USERIO_CLOCK_OUT')
+        readback = self.config_register_read('USERIO_CLOCK_OUT', use_cache=False)
         self.config_register_write('USERIO_CLOCK_OUT', 0x0000)
         self.num_clocks = bin(readback)[2:].count('1')
         return readback
@@ -1336,7 +1372,8 @@ class USERIOSettings(util.DisableNewAttr):
         parameters bring either the output clocks or the internal VCO out of
         range.
         """
-        if self.config_register_read('USERIO_CLKSEL') & 2:
+        # can't use config_register_read() cached value for this!
+        if self.config_register_read('USERIO_CLKSEL', use_cache=False) & 2:
             return True
         else:
             return False
@@ -1388,7 +1425,7 @@ class USERIOSettings(util.DisableNewAttr):
         return self._reader_2list(self.status, 9)
 
     def _bb_trig(self, pin):
-        bb_trig = self.oa.sendMessage(CODE_READ, "BB_TRIG_SELECT", maxResp=1)[0]
+        bb_trig = self._bitbanger._bb_trig_select
         if bb_trig & 0x0f == pin:
             return 'scope.bitbanger.data_pin'
         elif bb_trig >> 4 == pin:

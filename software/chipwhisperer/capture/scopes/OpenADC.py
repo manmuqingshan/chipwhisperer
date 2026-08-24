@@ -759,8 +759,8 @@ class OpenADC(util.DisableNewAttr, ChipWhispererCommonInterface):
                     self.UARTTrigger = UARTTrigger(scope=self, huskyplus=self._is_husky_plus, trace_reg_select=3, main_reg_select=2)
                 except Exception as e:
                     scope_logger.warning("TraceWhisperer unavailable " + str(e))
-            self.userio = USERIOSettings(self.sc, self.trace)
             self.bitbanger = BitBanger(self.sc)
+            self.userio = USERIOSettings(self.sc, self.trace, self.bitbanger)
             self.SAD = ChipWhispererSAD.HuskySAD(self.sc)
             self.errors = HuskyErrors(self.sc, self.XADC, self.adc, self.clock, self.trace)
             self._is_husky = True
