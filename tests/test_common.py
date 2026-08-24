@@ -178,7 +178,7 @@ def correct_fpga_version(scope):
     if scope._is_husky_plus:
         return scope.fpga_buildtime == '8/19/2026, 10:42'
     else:
-        return scope.fpga_buildtime == '8/19/2026, 12:56'
+        return scope.fpga_buildtime == '8/19/2026, 12:55'
 
 def common_fpga_version_check(scope):
     assert correct_fpga_version(scope)
