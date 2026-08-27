@@ -1330,7 +1330,7 @@ def test_segments (fulltest, offset, presamples, samples, stream, clock, adcmul,
             errors += 1
             bad_ratio = ratio
 
-    assert errors == 0, "Ratios = %80s; errors: %s, params = %s, XADC: %s" % (ratios, scope.adc.errors, funcparams, scope.XADC)
+    assert errors == 0, "Ratios = %.40s; errors: %s, params = %s, XADC: %s" % (ratios, scope.adc.errors, funcparams, scope.XADC)
     scope.adc.clip_errors_disabled = True
 
 
@@ -1497,7 +1497,7 @@ def test_sad_trigger (fulltest, clock, adc_mul, bits, emode, threshold, interval
         if sadtrace is None:
             bad += 1
             continue
-        assert scope.adc.errors == False
+        assert scope.adc.errors == False, scope.adc.fifo_debug_summary()
         sad = 0
         samples = 0
         for r,s,e in zip(reftrace.wave.astype(int), sadtrace.wave.astype(int), scope.SAD.enabled_samples):
