@@ -91,7 +91,7 @@ class OpenADCInterface(util.DisableNewAttr):
         self.hwMaxPresamples_12b = 0
         self.hwTotalSegmentBytes = 0
         self._stream_len = 0
-        self._total_samples = 0 # TODO: I don't think this actually needs to be a class property? check Pro
+        self._total_samples = 0
         self._int_data = None
         self._stream_rx_bytes = 0
         self._offsets = deque(maxlen=10) # purely for debugging: keep around the 10 last extracted offsets
@@ -508,11 +508,11 @@ class OpenADCInterface(util.DisableNewAttr):
             if bits_per_sample == 12:
                 while samples < 20:
                     samples += 6
-                    print('XXX increased samples to %d (short, presamples)' % samples)
+                    scope_logger.debug('increasing collected samples to %d (short, presamples)' % samples)
             elif bits_per_sample == 8:
                 while samples < 29:
                     samples += 9
-                    print('XXX increased samples to %d (short, presamples)' % samples)
+                    scope_logger.debug('increasing collected samples to %d (short, presamples)' % samples)
         # 1. account for worst-case offset:
         if bits_per_sample == 12:
             bytes_to_read = samples + 5
@@ -2094,8 +2094,6 @@ class TriggerSettings(util.DisableNewAttr):
     def _set_segments(self, num):
         # Notify capture system:
         self.oa.setSegments(num)
-        # necessary for streaming to work: TODO: should not be needed anymore! because above will call updateHuskySamplesRegister()
-        self.oa.setNumSamples(self.samples)
 
     @property
     def errors(self) -> Union[str, bool, int]:
@@ -2440,8 +2438,6 @@ class TriggerSettings(util.DisableNewAttr):
         self.oa.sendMessage(CODE_WRITE, "ADC_LOW_RES", [val])
         # Notify capture system:
         self.oa.setBitsPerSample(bits)
-        # necessary for streaming to work: TODO: should not be needed anymore! because above will call updateHuskySamplesRegister()
-        self.oa.setNumSamples(self.samples)
 
     def _get_bits_per_sample(self):
         return self._bits_per_sample
