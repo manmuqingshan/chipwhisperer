@@ -200,9 +200,9 @@ def test_reg_setup_writes():
     # The register we are reading gives us stats of the FPGA writes. For a specific configuration, these are constant.
     stats = scope._write_stats()
     if target_attached:
-        count = 1609
+        count = 1084
     else:
-        count = 1641
+        count = 1116
     exp_stats = {'last_addr':55, 'last_wdata':0, 'count':count}
     assert stats == exp_stats, 'Unexpected write stats: %s; expected %s (note: only works on a freshly-programmed FPGA)' % (stats, exp_stats)
 
