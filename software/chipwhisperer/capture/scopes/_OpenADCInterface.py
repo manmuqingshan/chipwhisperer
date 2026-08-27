@@ -1015,7 +1015,7 @@ class OpenADCInterface(util.DisableNewAttr):
                 self._int_data = None
                 return None
             else:
-                offset = data[stop-9]
+                offset = int(data[stop-9])
             scope_logger.debug('offset extracted from payload: %d' % offset)
             self._offsets.append(offset) # for debugging
 
